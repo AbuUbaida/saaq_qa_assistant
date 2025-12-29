@@ -12,12 +12,12 @@ This is where the magic happens before the user arrives.
 
 ingest_data.py:
 
-Job: Reads the SAAQ PDFs from `data/raw_pdfs/` and the SAAQ URLs from `data/urls.txt`.
+Job: Reads the SAAQ PDFs from data/raw_pdfs/.
 
-Logic: Loads PDFs (PyPDFLoader) and scrapes URLs (FireCrawl), cleans + chunks text, generates embeddings (HuggingFace endpoint embeddings by default), then upserts vectors into Weaviate (`backend/app/db/vector_store.py`) using deterministic chunk IDs so re-runs don’t duplicate vectors.
+Logic: Uses a library (like Unstructured or PyPDF) to extract text. Splits text into chunks (e.g., 500 characters with overlapping). Calls the Embedding Model (e.g., OpenAI text-embedding-3-small) to turn text into vectors. Pushes these vectors into your Vector Database.
 
 Why separate? You run this once (or weekly). You don't want to re-ingest data every time a user asks a question.
 
-[UPDATE]: The ingestion pipeline is implemented in `scripts/{pdf_collector,web_collector,text_processor,embedder}.py` and orchestrated by `scripts/ingest_data.py`.
+[UPDATE]: This script now needs two "loaders": one for PDFs (e.g., PyPDFLoader) and one for text files (e.g., TextLoader).
 
 Future-Proofing (French Support): When you chunk the data here, add a metadata field {"lang": "en"} to every vector. Even though you are only doing English now, this simple tag will save you from having to delete your entire database when you add French later. You will simply filter by lang="en" or lang="fr" in your retrieval query.

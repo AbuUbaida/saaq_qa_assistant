@@ -1,0 +1,11 @@
+pypdf
+python-dotenv
+pathlib
+jsonlines
+langchain
+langchain-huggingface
+langdetect
+weaviate-client
+tqdm
+requests
+pandas

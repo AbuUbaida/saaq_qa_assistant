@@ -260,7 +260,4 @@ class WeaviateVectorStore:
         return False
 
 
-# Back-compat name used by older code.
-WeaviateStore = WeaviateVectorStore
-
 
