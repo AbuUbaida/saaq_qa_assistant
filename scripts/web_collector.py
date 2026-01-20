@@ -1,14 +1,11 @@
-"""Web document collector using FireCrawl.
-
-Provides WebCollector class for scraping web documents and saving them
-to JSONL format with metadata enrichment.
-"""
+"""Web document collector using FireCrawl."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -17,16 +14,17 @@ from dotenv import load_dotenv
 from langchain_community.document_loaders import FireCrawlLoader
 from langchain_core.documents import Document
 
-from ..core.utils import setup_project_path, get_repo_root
+# Add repo root to sys.path BEFORE importing backend modules
+_script_dir = Path(__file__).resolve().parent
+_repo_root = _script_dir.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
-setup_project_path()
+from backend.core.utils import get_repo_root
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 REPO_ROOT = get_repo_root()
@@ -34,284 +32,203 @@ DEFAULT_SOURCE_DIR = REPO_ROOT / "data" / "raw" / "html_sources"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "raw" / "documents" / "html_documents"
 
 
-class WebCollector:
-    """Collects web documents using FireCrawl API.
-    
-    Handles web scraping, error detection, retry logic, and document
-    persistence with metadata enrichment.
-    """
-    
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        source_dir: Path | str = DEFAULT_SOURCE_DIR,
-        output_dir: Path | str = DEFAULT_OUTPUT_DIR,
-    ):
-        """Initialize web collector.
-        
-        Args:
-            api_key: FireCrawl API key. If None, reads from FIRECRAWL_API_KEY env var.
-            source_dir: Default directory containing HTML source files.
-            output_dir: Default directory for saving collected documents.
-        """
-        self.api_key = api_key or os.getenv("FIRECRAWL_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "FireCrawl API key missing. Set the FIRECRAWL_API_KEY env var or pass api_key."
-            )
-        self.source_dir = Path(source_dir)
-        self.output_dir = Path(output_dir)
-    
-    @staticmethod
-    def read_urls_from_file(file_path: Path | str) -> List[str]:
-        """Return sanitized URLs from the provided HTML source files.
-        
-        Comments (lines starting with ``#``) and blank/whitespace-only lines are ignored.
-        
-        Args:
-            file_path: Path to directory containing HTML source files.
-        
-        Returns:
-            List of sanitized URL strings.
-        
-        Raises:
-            FileNotFoundError: If the file does not exist.
-        """
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"HTML source file not found: {path}")
+def _get_api_key(api_key: Optional[str]) -> str:
+    key = api_key or os.getenv("FIRECRAWL_API_KEY")
+    if not key:
+        raise ValueError("FireCrawl API key missing. Set FIRECRAWL_API_KEY or pass --api-key.")
+    return key
 
-        urls = [
-            line.strip()
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
-        logger.info("Loaded %d URLs from %s", len(urls), path)
-        return urls
-    
-    @staticmethod
-    def _contains_error_codes(documents: List[Document]) -> bool:
-        """Return True when FireCrawl returned an error page instead of the content.
-        
-        Args:
-            documents: List of Document objects to check.
-        
-        Returns:
-            True if error codes (401, 403, 500) are detected in content.
-        """
-        if not documents:
-            return False
-        joined_content = " ".join(doc.page_content for doc in documents).lower()
-        return any(code in joined_content for code in ("401", "403", "500"))
-    
-    def _scrape_urls(
-        self,
-        urls: List[str],
-        source_file: str,
-    ) -> List[Document]:
-        """Scrape URLs and return documents with metadata.
-        
-        Args:
-            urls: List of URLs to scrape.
-            source_file: Optional source file name for metadata.
-            
-        Returns:
-            List of Document objects enriched with metadata.
-        """
-        collected_docs: List[Document] = []
-        timestamp = datetime.now(timezone.utc).isoformat()
-        source_file_id = source_file.split("_")[0]
-        
-        for url in urls:
-            try:
+
+def list_source_files(source_dir: Path | str = DEFAULT_SOURCE_DIR) -> List[str]:
+    path = Path(source_dir)
+    if not path.exists():
+        return []
+    return sorted([p.name for p in path.glob("*.txt")])
+
+
+def read_urls_from_file(file_path: Path | str) -> List[str]:
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"HTML source file not found: {path}")
+
+    urls = [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    logger.info("Loaded %d URLs from %s", len(urls), path)
+    return urls
+
+
+def _contains_error_codes(documents: List[Document]) -> bool:
+    if not documents:
+        return False
+    joined_content = " ".join(doc.page_content for doc in documents).lower()
+    return any(code in joined_content for code in ("401", "403", "500"))
+
+
+def scrape_urls(
+    urls: List[str],
+    *,
+    source_file: str,
+    api_key: Optional[str] = None,
+) -> List[Document]:
+    key = _get_api_key(api_key)
+    collected_docs: List[Document] = []
+    timestamp = datetime.now(timezone.utc).isoformat()
+    source_file_id = source_file.split("_")[0]
+
+    for url in urls:
+        try:
+            loader = FireCrawlLoader(
+                api_key=key,
+                url=url,
+                mode="scrape",
+                params={"onlyMainContent": True},
+            )
+            documents = loader.load()
+
+            if _contains_error_codes(documents):
+                logger.info("Detected error response for %s, retrying with stealth proxy", url)
                 loader = FireCrawlLoader(
-                    api_key=self.api_key,
+                    api_key=key,
                     url=url,
                     mode="scrape",
-                    params={"onlyMainContent": True},
+                    params={"onlyMainContent": True, "proxy": "stealth"},
                 )
                 documents = loader.load()
-                
-                if self._contains_error_codes(documents):
-                    logger.info(
-                        "Detected error response for %s, retrying with stealth proxy", url
-                    )
-                    loader = FireCrawlLoader(
-                        api_key=self.api_key,
-                        url=url,
-                        mode="scrape",
-                        params={"onlyMainContent": True, "proxy": "stealth"},
-                    )
-                    documents = loader.load()
-                
-                if not documents:
-                    logger.warning("No content returned for %s", url)
-                    continue
 
-                for document in documents:
-                    metadata = {
+            if not documents:
+                logger.warning("No content returned for %s", url)
+                continue
+
+            for document in documents:
+                document.metadata.update(
+                    {
                         "collected_at": timestamp,
                         "source_url": url,
                         "source_type": "html",
                         "source_file": source_file,
                         "source_file_id": source_file_id,
                     }
-                    document.metadata.update(metadata)
-                    collected_docs.append(document)
-                logger.info("Collected %d document(s) from %s", len(documents), url)
-            except Exception as exc:
-                logger.exception("Failed to collect %s: %s", url, exc)
+                )
+                collected_docs.append(document)
+            logger.info("Collected %d document(s) from %s", len(documents), url)
+        except Exception as exc:
+            logger.exception("Failed to collect %s: %s", url, exc)
 
-        return collected_docs
-    
-    def collect(
-        self,
-        source_files: List[str],
-        source_dir: Optional[Path | str] = None,
-    ) -> Dict[str, List[Document]]:
-        """Collect web documents from source files.
-        
-        - Reads URLs from each source file in source_dir
-        - Scrapes all URLs from that file
-        - Returns a dictionary mapping source file names to their documents
-        
-        Args:
-            source_files: List of source file names (.txt) to process.
-            source_dir: Directory containing HTML source files. If None, uses self.source_dir.
-            
-        Returns:
-            Dictionary mapping source file names to their Document lists.
-        """
-        source_dir = Path(source_dir) if source_dir else self.source_dir
-        
-        results: Dict[str, List[Document]] = {}
-        
-        for source_file in source_files:
-            # Ensure source_file has .txt extension
-            if not source_file.endswith('.txt'):
-                source_file = f"{source_file}.txt"
-            
-            source_path = source_dir / source_file
-            
-            if not source_path.exists():
-                logger.warning("Source file not found: %s, skipping", source_path)
-                results[source_file] = []
-                continue
-            
-            logger.info("Processing source file: %s", source_file)
-            
-            # Read URLs from source file
-            url_list = self.read_urls_from_file(source_path)
-            
-            if not url_list:
-                logger.warning("No URLs found in %s, skipping", source_file)
-                results[source_file] = []
-                continue
-            
-            # Scrape URLs
-            documents = self._scrape_urls(url_list, source_file=source_file)
-
-            if not documents:
-                logger.warning("No documents collected from %s", source_path)
-                results[source_file] = []
-                continue
-            
-            results[source_file] = documents
-            logger.info(
-                "Completed processing %s: collected %d document(s)",
-                source_file,
-                len(documents),
-            )
-        
-        return results
-    
-    def save(
-        self,
-        document_list: List[Document],
-        output_dir: Path | str,
-        output_filename: str,
-    ) -> Path:
-        """Persist documents as JSONL under output_dir.
-        
-        Args:
-            document_list: List of Document objects to save.
-            output_dir: Directory where the JSONL file will be written.
-            output_filename: Name of the output JSONL file.
-        
-        Returns:
-            Path to the created JSONL file.
-        
-        Raises:
-            OSError: If the file cannot be written.
-        """
-        output_dir = Path(output_dir) if output_dir else self.output_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        output_file = output_dir / output_filename
-
-        try:
-            with output_file.open("w", encoding="utf-8") as handle:
-                for doc in document_list:
-                    record = {
-                        "page_content": doc.page_content,
-                        "metadata": doc.metadata,
-                    }
-                    handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-            logger.info("Saved %d documents to %s", len(document_list), output_file)
-        except Exception:
-            logger.exception("Unable to write FireCrawl output to %s", output_file)
-            raise
-
-        return output_file
-    
-    def collect_and_save(
-        self,
-        source_files: List[str],
-        source_dir: Optional[Path | str] = None,
-        output_dir: Optional[Path | str] = None,
-    ) -> Dict[str, List[Document]]:
-        """Collect documents from source files and save them to JSONL.
-        
-        Args:
-            source_files: List of source file names (.txt) to process.
-            source_dir: Directory containing source files. If None, uses self.source_dir.
-            output_dir: Directory for saving. If None, uses self.output_dir.
-        
-        Returns:
-            Dictionary mapping source file names to their Document lists.
-        """
-        documents_w_filename = self.collect(
-            source_files=source_files,
-            source_dir=source_dir,
-        )   
-
-        if documents_w_filename:
-            output_dir = output_dir or self.output_dir
-            for source_file, documents in documents_w_filename.items():
-                output_filename = source_file.replace('.txt', '.jsonl')
-                self.save(documents, output_dir, output_filename)
-        
-        return documents_w_filename
+    return collected_docs
 
 
-# def collect_web_documents(
-#     source_files: List[str],
-#     api_key: Optional[str] = None,
-#     source_dir: Path | str = DEFAULT_SOURCE_DIR,
-#     output_dir: Path | str = DEFAULT_OUTPUT_DIR,
-# ) -> Dict[str, List[Document]]:
-#     """Collect web documents from source files and save them to JSONL.
-    
-#     Backward compatibility wrapper for WebCollector.
-    
-#     Args:
-#         source_files: List of source file names (.txt) to process. Each file should be in source_dir.
-#         api_key: FireCrawl API key. When None we attempt to read FIRECRAWL_API_KEY.
-#         source_dir: Directory containing source files.
-#         output_dir: Directory for saving.
-    
-#     Returns:
-#         Dictionary mapping source file names to their Document lists.
-#     """
-#     collector = WebCollector(api_key=api_key)
-#     return collector.collect_and_save(source_files=source_files, source_dir=source_dir, output_dir=output_dir)
+def collect_web_documents(
+    source_files: List[str],
+    *,
+    source_dir: Path | str = DEFAULT_SOURCE_DIR,
+    api_key: Optional[str] = None,
+) -> Dict[str, List[Document]]:
+    source_dir = Path(source_dir)
+    results: Dict[str, List[Document]] = {}
+
+    for source_file in source_files:
+        if not source_file.endswith(".txt"):
+            source_file = f"{source_file}.txt"
+
+        source_path = source_dir / source_file
+        if not source_path.exists():
+            logger.warning("Source file not found: %s, skipping", source_path)
+            results[source_file] = []
+            continue
+
+        logger.info("Processing source file: %s", source_file)
+        url_list = read_urls_from_file(source_path)
+        if not url_list:
+            logger.warning("No URLs found in %s, skipping", source_file)
+            results[source_file] = []
+            continue
+
+        documents = scrape_urls(url_list, source_file=source_file, api_key=api_key)
+        if not documents:
+            logger.warning("No documents collected from %s", source_path)
+            results[source_file] = []
+            continue
+
+        results[source_file] = documents
+        logger.info("Collected %d document(s) from %s", len(documents), source_file)
+
+    return results
+
+
+def save_documents(
+    document_list: List[Document],
+    *,
+    output_dir: Path | str,
+    output_filename: str,
+) -> Path:
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / output_filename
+
+    try:
+        with output_file.open("w", encoding="utf-8") as handle:
+            for doc in document_list:
+                record = {"page_content": doc.page_content, "metadata": doc.metadata}
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        logger.info("Saved %d documents to %s", len(document_list), output_file)
+    except Exception:
+        logger.exception("Unable to write FireCrawl output to %s", output_file)
+        raise
+
+    return output_file
+
+
+def collect_and_save(
+    source_files: List[str],
+    *,
+    source_dir: Path | str = DEFAULT_SOURCE_DIR,
+    output_dir: Path | str = DEFAULT_OUTPUT_DIR,
+    api_key: Optional[str] = None,
+) -> Dict[str, List[Document]]:
+    documents_by_file = collect_web_documents(source_files=source_files, source_dir=source_dir, api_key=api_key)
+    for source_file, documents in documents_by_file.items():
+        if not documents:
+            continue
+        output_filename = source_file.replace(".txt", ".jsonl")
+        save_documents(documents, output_dir=output_dir, output_filename=output_filename)
+    return documents_by_file
+
+
+def parse_args():
+    import argparse
+
+    p = argparse.ArgumentParser(description="Collect web pages (Firecrawl) into JSONL.")
+    p.add_argument("--source-dir", default=str(DEFAULT_SOURCE_DIR))
+    p.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    p.add_argument("--api-key", default=None, help="FireCrawl API key (optional; falls back to env).")
+    p.add_argument(
+        "--source",
+        action="append",
+        dest="source_files",
+        default=None,
+        help="Text file of URLs to scrape (repeatable). If omitted, uses all *.txt in source-dir.",
+    )
+    return p.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    source_files = args.source_files or list_source_files(args.source_dir)
+    if not source_files:
+        logger.error("No *.txt URL files found. Put one in %s or pass --source <file>.txt", args.source_dir)
+        return 1
+
+    collect_and_save(
+        source_files=source_files,
+        source_dir=args.source_dir,
+        output_dir=args.output_dir,
+        api_key=args.api_key,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

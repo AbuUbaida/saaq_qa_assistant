@@ -1,0 +1,17 @@
+.env
+.venv/
+venv/
+env/
+
+__pycache__/
+*.pyc
+*.pyo
+
+.pytest_cache/
+.mypy_cache/
+
+.streamlit/
+
+# Local evaluation outputs (can be regenerated)
+data/evaluation/results/*.csv
+

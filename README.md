@@ -1,23 +1,165 @@
-**The Scraper (scripts/scrape_saaq.py)**
-Since you have URLs, you need a dedicated script to fetch them.
+# SAAQ QA Assistant (Portfolio Project)
 
-Job: Reads data/urls.txt. Uses a library like BeautifulSoup or LangChain WebBaseLoader to visit each URL, extract the main content (ignoring navigation bars/footers), and save the text as .txt or .json files into data/raw_html/.
+SAAQ QA Assistant is a simple **RAG (Retrieval-Augmented Generation)** project:
 
-Why: SAAQ websites change. You want a snapshot of the text locally so your RAG pipeline is stable and you don't DDoS their website every time you re-index.
+- **Backend**: FastAPI (`backend/`) exposes `POST /api/v1/chat`
+- **Frontend**: Streamlit (`frontend/`) shows the answer + sources
+- **Vector DB**: Weaviate (`weaviate` container)
+- **Reverse proxy**: Nginx (`nginx` container)
+
+This README focuses on **deploying to a VM using Docker Compose** (with Nginx).  
+Prometheus/Grafana are intentionally **not** part of the deployment workflow for now.
 
 ---
 
-**The Ingester (scripts/ingest_data.py)**
-This is where the magic happens before the user arrives.
+## What you will deploy (services)
 
-ingest_data.py:
+- `weaviate`: stores your vectors + document chunks
+- `backend`: FastAPI RAG API
+- `frontend`: Streamlit UI
+- `nginx`: single public entrypoint (port 80)
 
-Job: Reads the SAAQ PDFs from data/raw_pdfs/.
+Nginx routes:
+- `http://<VM-IP>/` → Streamlit UI
+- `http://<VM-IP>/api/...` → FastAPI backend
 
-Logic: Uses a library (like Unstructured or PyPDF) to extract text. Splits text into chunks (e.g., 500 characters with overlapping). Calls the Embedding Model (e.g., OpenAI text-embedding-3-small) to turn text into vectors. Pushes these vectors into your Vector Database.
+---
 
-Why separate? You run this once (or weekly). You don't want to re-ingest data every time a user asks a question.
+## VM prerequisites
 
-[UPDATE]: This script now needs two "loaders": one for PDFs (e.g., PyPDFLoader) and one for text files (e.g., TextLoader).
+- A Linux VM (Ubuntu is fine)
+- Docker + Docker Compose installed
+- Firewall/security group:
+  - open **80** (and **443** later if you add HTTPS)
+  - optionally open **22** for SSH
+  - keep **8080/8000/8501** closed publicly (Nginx is the entrypoint)
 
-Future-Proofing (French Support): When you chunk the data here, add a metadata field {"lang": "en"} to every vector. Even though you are only doing English now, this simple tag will save you from having to delete your entire database when you add French later. You will simply filter by lang="en" or lang="fr" in your retrieval query.
+---
+
+## Step 1: Clone the repo on the VM
+
+```bash
+git clone <YOUR_GITHUB_REPO_URL>
+cd saaq_qa_assistant
+```
+
+---
+
+## Step 2: Create `.env` (required)
+
+Create a `.env` file in the repo root:
+
+```bash
+cat > .env <<'EOF'
+HF_API_KEY=YOUR_HUGGINGFACE_API_KEY
+EOF
+```
+
+Notes:
+- `HF_API_KEY` is required for **query embeddings** + **LLM generation**.
+
+---
+
+## Step 3: Start the stack (with Nginx)
+
+Build and run:
+
+```bash
+docker compose up -d --build weaviate backend frontend nginx
+```
+
+Check containers:
+
+```bash
+docker compose ps
+```
+
+At this point the UI should be reachable at:
+- `http://<VM-IP>/`
+
+---
+
+## Step 4: One-time indexing (create collection + upload vectors)
+
+Your API will return a server error until the Weaviate collection exists.
+To create it, you need to index embeddings into Weaviate.
+
+### 4.1 Create processed chunks
+
+```bash
+python -m scripts.text_processor \
+  --input data/raw/documents/pdf_documents/1_drivers_handbook.jsonl \
+  --output-dir data/processed/pdf_documents
+```
+
+### 4.2 Create embeddings JSONL
+
+```bash
+python -m scripts.embedder \
+  --input data/processed/pdf_documents/1_drivers_handbook.jsonl \
+  --output-dir data/embeddings/pdf_documents
+```
+
+This creates a file like:
+- `data/embeddings/pdf_documents/1_drivers_handbook[sentence-transformers_all-MiniLM-L6-v2].jsonl`
+
+### 4.3 Index embeddings into Weaviate
+
+```bash
+python -m scripts.index_embeddings \
+  --input data/embeddings/pdf_documents/1_drivers_handbook[sentence-transformers_all-MiniLM-L6-v2].jsonl
+```
+
+---
+
+## Step 5: Test the API (directly)
+
+```bash
+curl -X POST http://<VM-IP>/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is a probationary license in Quebec?",
+    "search_method": "hybrid",
+    "top_k": 5,
+    "language": "en",
+    "answer_style": "concise",
+    "include_citations": true
+  }'
+```
+
+Expected response shape:
+- `answer`
+- `sources` (citations)
+- `retrieved_count`
+- `latency`
+
+---
+
+## Operational notes (production-ish)
+
+- **Logs**:
+
+```bash
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f nginx
+docker compose logs -f weaviate
+```
+
+- **Restart after VM reboot**:
+
+```bash
+docker compose up -d
+```
+
+- **Backups / persistence**:
+  - Weaviate data is stored in a Docker volume: `weaviate_data`
+
+---
+
+## Local development (optional)
+
+If you want to run without Docker:
+- run FastAPI on `:8000`
+- run Streamlit on `:8501`
+- run Weaviate separately (Docker recommended)
