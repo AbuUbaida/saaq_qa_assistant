@@ -39,7 +39,7 @@ Nginx routes:
 ## Step 1: Clone the repo on the VM
 
 ```bash
-git clone <YOUR_GITHUB_REPO_URL>
+git clone https://github.com/AbuUbaida/saaq_qa_assistant.git
 cd saaq_qa_assistant
 ```
 
