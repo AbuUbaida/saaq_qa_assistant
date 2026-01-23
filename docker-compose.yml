@@ -36,16 +36,14 @@ services:
       WEAVIATE_PORT: "8080"
       HF_API_KEY: ${HF_API_KEY:-}
       CORS_ALLOW_ORIGINS: "*"
-      AUTO_INDEX_ON_STARTUP: "true"
-      AUTO_INDEX_HTML_DIR: "/app/data/embeddings/html_documents"
-      AUTO_INDEX_PDF_DIR: "/app/data/embeddings/pdf_documents"
-      AUTO_INDEX_BATCH_SIZE: "200"
-      AUTO_INDEX_WAIT_SECONDS: "120"
     # ports:
     #   - "8000:8000"
     depends_on:
       - weaviate
     restart: unless-stopped
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./data:/app/data:ro
     mem_limit: 512m
     mem_reservation: 256m
     cpus: 0.5

@@ -62,6 +62,7 @@ def _index_on_startup(settings) -> None:
         collection_name=settings.weaviate_collection,
     )
     try:
+        store.ensure_collection(collection_name=settings.weaviate_collection)
         if store.collection_has_data(collection_name=settings.weaviate_collection):
             logger.info("Collection already has data; skipping auto-indexing.")
             return
@@ -75,7 +76,11 @@ def _index_on_startup(settings) -> None:
     pdf_files = sorted(pdf_dir.glob("*.jsonl")) if pdf_dir.exists() else []
 
     if not html_files and not pdf_files:
-        logger.warning("No embeddings found to index on startup.")
+        logger.warning(
+            "No embeddings found in expected directories. Checked: %s and %s",
+            html_dir,
+            pdf_dir,
+        )
         return
 
     if html_files:
