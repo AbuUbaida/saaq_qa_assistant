@@ -27,19 +27,46 @@ Nginx routes:
 
 ## VM prerequisites
 
-- A Linux VM (Ubuntu is fine)
+- A Linux VM (Ubuntu 20.04+ recommended)
 - Docker + Docker Compose installed
+- Minimum resources:
+  - **RAM**: 2 GB (4 GB recommended)
+  - **CPU**: 2 vCPU (4 vCPU recommended)
+  - **Disk**: 10 GB free space
 - Firewall/security group:
   - open **80** (and **443** later if you add HTTPS)
   - optionally open **22** for SSH
   - keep **8080/8000/8501** closed publicly (Nginx is the entrypoint)
+
+### Install Docker & Docker Compose (if not installed)
+
+```bash
+# Update package index
+sudo apt-get update
+
+# Install Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# Add your user to docker group (to run without sudo)
+sudo usermod -aG docker $USER
+# Log out and back in for this to take effect
+
+# Install Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Verify installation
+docker --version
+docker compose version
+```
 
 ---
 
 ## Step 1: Clone the repo on the VM
 
 ```bash
-git clone https://github.com/AbuUbaida/saaq_qa_assistant.git
+git clone <YOUR_GITHUB_REPO_URL>
 cd saaq_qa_assistant
 ```
 
@@ -51,75 +78,105 @@ Create a `.env` file in the repo root:
 
 ```bash
 cat > .env <<'EOF'
-HF_API_KEY=<HUGGINGFACE_API_KEY>
-FIRECRAWL_API_KEY=<FIRECRAWL_API_KEY>
+HF_API_KEY=YOUR_HUGGINGFACE_API_KEY
 EOF
 ```
 
 Notes:
 - `HF_API_KEY` is required for **query embeddings** + **LLM generation**.
+- Get your API key from: https://huggingface.co/settings/tokens
 
 ---
 
 ## Step 3: Start the stack (with Nginx)
 
-Build and run:
+Build and run all services:
 
 ```bash
 docker compose up -d --build weaviate backend frontend nginx
 ```
 
-Check containers:
+Check containers are running:
 
 ```bash
 docker compose ps
 ```
 
-At this point the UI should be reachable at:
+All containers should show `Up` status. At this point the UI should be reachable at:
 - `http://<VM-IP>/`
   - Only Nginx is exposed. Backend/Frontend/Weaviate are internal to Docker.
 
----
-
-## Step 4: One-time indexing (create collection + upload vectors)
-
-The API will return a server error until the Weaviate collection exists.
-To create it, you need to index embeddings into Weaviate.
-
-### 4.1 Create processed chunks
-
-```bash
-python -m scripts.text_processor \
-  --input data/raw/documents/pdf_documents/1_drivers_handbook.jsonl \
-  --output-dir data/processed/pdf_documents
-```
-
-### 4.2 Create embeddings JSONL
-
-```bash
-python -m scripts.embedder \
-  --input data/processed/pdf_documents/1_drivers_handbook.jsonl \
-  --output-dir data/embeddings/pdf_documents
-```
-
-This creates a file like:
-- `data/embeddings/pdf_documents/1_drivers_handbook[sentence-transformers_all-MiniLM-L6-v2].jsonl`
-
-### 4.3 Index embeddings into Weaviate (HTML + PDF)
-
-Run indexing twice: once for **HTML embeddings**, once for **PDF embeddings**.
-
-```bash
-# HTML embeddings
-python -m scripts.index_embeddings --input-dir data/embeddings/html_documents
-
-# PDF embeddings
-python -m scripts.index_embeddings --input-dir data/embeddings/pdf_documents
-```
+**Note**: The API will return errors until you index data (Step 4).
 
 ---
 
-## Step 5: Test the API (directly)
+## Step 4: Index data into Weaviate
+
+Your API will return a server error until the Weaviate collection exists.
+You need to index embeddings into Weaviate **twice**:
+1. **HTML documents** (from `data/embeddings/html_documents/`)
+2. **PDF documents** (from `data/embeddings/pdf_documents/`)
+
+### Prerequisites: Prepare embeddings
+
+Before indexing, ensure you have embeddings JSONL files in:
+- `data/embeddings/html_documents/*.jsonl`
+- `data/embeddings/pdf_documents/*.jsonl`
+
+If you don't have embeddings yet, follow the ingestion pipeline:
+1. **Collect** → `scripts/web_collector.py` or `scripts/pdf_collector.py`
+2. **Process** → `scripts/text_processor.py`
+3. **Embed** → `scripts/embedder.py`
+
+### 4.1 Index HTML documents
+
+Index all HTML embeddings from the embeddings folder:
+
+```bash
+docker compose exec backend python -m scripts.index_embeddings \
+  --input-dir /app/data/embeddings/html_documents
+```
+
+This will process all `.jsonl` files in that directory and batch-insert them into Weaviate.
+
+### 4.2 Index PDF documents
+
+Index all PDF embeddings from the embeddings folder:
+
+```bash
+docker compose exec backend python -m scripts.index_embeddings \
+  --input-dir /app/data/embeddings/pdf_documents
+```
+
+### 4.3 Verify indexing
+
+Check that the collection exists and has data:
+
+```bash
+docker compose exec backend python -m scripts.delete_collection --list
+```
+
+You should see `SAAQDocuments` (or your configured collection name) listed.
+
+**Note**: If you need to re-index, you can delete the collection first:
+```bash
+docker compose exec backend python -m scripts.delete_collection --collection SAAQDocuments --yes
+```
+
+---
+
+## Step 5: Test the API
+
+### Via UI
+
+Open your browser and navigate to:
+```
+http://<VM-IP>/
+```
+
+Ask a question like: "What is a probationary license in Quebec?"
+
+### Via curl (direct API test)
 
 ```bash
 curl -X POST http://<VM-IP>/api/v1/chat \
@@ -142,31 +199,104 @@ Expected response shape:
 
 ---
 
-## Operational notes (production-ish)
+## Operational notes (production)
 
-- **Logs**:
+### View logs
 
 ```bash
+# All services
+docker compose logs -f
+
+# Individual services
 docker compose logs -f backend
 docker compose logs -f frontend
 docker compose logs -f nginx
 docker compose logs -f weaviate
 ```
 
-- **Restart after VM reboot**:
+### Restart services
 
+After VM reboot, services will auto-restart (thanks to `restart: unless-stopped` policy).
+
+To manually restart:
 ```bash
-docker compose up -d
+docker compose restart
 ```
 
-- **Backups / persistence**:
-  - Weaviate data is stored in a Docker volume: `weaviate_data`
+To restart a specific service:
+```bash
+docker compose restart backend
+```
+
+### Resource monitoring
+
+Check container resource usage:
+```bash
+docker stats
+```
+
+### Backups / persistence
+
+- Weaviate data is stored in a Docker volume: `weaviate_data`
+- To backup Weaviate data:
+  ```bash
+  docker compose exec weaviate ls -la /var/lib/weaviate/backups
+  ```
+
+### Update application
+
+```bash
+# Pull latest code
+git pull
+
+# Rebuild and restart
+docker compose up -d --build
+```
+
+---
+
+## Troubleshooting
+
+### Backend returns "could not find class SAAQDocuments in schema"
+
+**Solution**: You haven't indexed data yet. Follow **Step 4** to index embeddings.
+
+### Frontend shows "Request exceeded timeout"
+
+**Solution**: The RAG pipeline is taking longer than 60 seconds. The timeout is set to 120 seconds in the frontend config. If queries consistently take longer, consider:
+- Reducing `top_k` in requests
+- Using a faster LLM model
+- Optimizing your document chunks
+
+### Containers won't start / OOM errors
+
+**Solution**: Your VM may not have enough RAM. Check resource limits in `docker-compose.yml` and adjust based on your VM size.
+
+### Can't access the UI
+
+**Solution**: 
+1. Check firewall: `sudo ufw status` (port 80 should be open)
+2. Check containers: `docker compose ps`
+3. Check Nginx logs: `docker compose logs nginx`
 
 ---
 
 ## Local development (optional)
 
 If you want to run without Docker:
-- run FastAPI on `:8000`
-- run Streamlit on `:8501`
-- run Weaviate separately (Docker recommended)
+
+1. Install Python 3.11+ and dependencies:
+   ```bash
+   pip install -r requirements.txt
+   pip install -r backend/requirements.txt
+   pip install -r frontend/requirements.txt
+   ```
+
+2. Run services separately:
+   - Weaviate: `docker compose up -d weaviate` (or use cloud Weaviate)
+   - Backend: `uvicorn backend.main:app --reload --port 8000`
+   - Frontend: `streamlit run frontend/app.py --server.port 8501`
+
+3. Access:
+   - Frontend: `http://localhost:8501`
+   - Backend API: `http://localhost:8000`
