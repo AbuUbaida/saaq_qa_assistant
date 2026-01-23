@@ -1,0 +1,33 @@
+# One dependency file for the whole project (backend + frontend + scripts + evaluation).
+
+# Web/API + UI
+fastapi
+uvicorn[standard]
+streamlit
+
+# Core utilities
+pydantic
+python-dotenv
+requests
+pandas
+tqdm
+pypdf
+langdetect
+
+# RAG stack
+weaviate-client
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-huggingface
+
+# Evaluation (RAGAS) + optional OpenAI backend for metrics
+ragas
+openai
+
+# Firecrawl loader dependency (used by scripts/web_collector.py)
+firecrawl-py
+
+# Tests
+pytest
+httpx
