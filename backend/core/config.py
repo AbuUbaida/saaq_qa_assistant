@@ -65,6 +65,13 @@ class Settings:
     # Retrieval defaults
     default_top_k: int = 5
 
+    # Startup indexing (optional)
+    auto_index_on_startup: bool = False
+    auto_index_html_dir: str = "/app/data/embeddings/html_documents"
+    auto_index_pdf_dir: str = "/app/data/embeddings/pdf_documents"
+    auto_index_batch_size: int = 200
+    auto_index_wait_seconds: int = 120
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
@@ -84,6 +91,11 @@ def get_settings() -> Settings:
         hf_llm_model=os.getenv("HF_LLM_MODEL", "HuggingFaceH4/zephyr-7b-beta"),
         llm_temperature=_env_float("LLM_TEMPERATURE", 0.0),
         default_top_k=_env_int("TOP_K", 5),
+        auto_index_on_startup=_env_bool("AUTO_INDEX_ON_STARTUP", False),
+        auto_index_html_dir=os.getenv("AUTO_INDEX_HTML_DIR", "/app/data/embeddings/html_documents"),
+        auto_index_pdf_dir=os.getenv("AUTO_INDEX_PDF_DIR", "/app/data/embeddings/pdf_documents"),
+        auto_index_batch_size=_env_int("AUTO_INDEX_BATCH_SIZE", 200),
+        auto_index_wait_seconds=_env_int("AUTO_INDEX_WAIT_SECONDS", 120),
     )
 
 

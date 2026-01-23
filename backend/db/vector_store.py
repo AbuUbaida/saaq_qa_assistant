@@ -3,7 +3,7 @@
 Goal: keep Weaviate interactions in one place with a small surface area:
 - connect (local or cloud)
 - ensure collection schema exists
-- upsert documents (idempotent)
+- batch insert documents
 - search (vector / keyword / hybrid)
 - delete collection
 """
@@ -363,6 +363,23 @@ class WeaviateStore:
         self.client.collections.delete(name)
         logger.info("Deleted Weaviate collection: %s", name)
         return True
+
+    def collection_has_data(self, *, collection_name: Optional[str] = None) -> bool:
+        """Return True if the collection exists and has at least one object."""
+        name = collection_name or self.collection_name
+        if not self.client.collections.exists(name):
+            return False
+        col = self.client.collections.get(name)
+        try:
+            res = col.query.fetch_objects(limit=1)
+            return bool(getattr(res, "objects", []) or [])
+        except Exception:
+            try:
+                res = col.aggregate.over_all(total_count=True)
+                total = getattr(res, "total_count", None)
+                return bool(total)
+            except Exception:
+                return False
 
     def close(self) -> None:
         if self._client_owner and self._client is not None:

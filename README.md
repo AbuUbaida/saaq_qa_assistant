@@ -20,6 +20,7 @@ Prometheus/Grafana are intentionally **not** part of the deployment workflow for
 - `nginx`: single public entrypoint (port 80)
 
 Nginx routes:
+
 - `http://<VM-IP>/` → Streamlit UI
 - `http://<VM-IP>/api/...` → FastAPI backend
 
@@ -83,8 +84,9 @@ EOF
 ```
 
 Notes:
+
 - `HF_API_KEY` is required for **query embeddings** + **LLM generation**.
-- Get your API key from: https://huggingface.co/settings/tokens
+- Get your API key from: [Hugging Face tokens](https://huggingface.co/settings/tokens)
 
 ---
 
@@ -103,64 +105,32 @@ docker compose ps
 ```
 
 All containers should show `Up` status. At this point the UI should be reachable at:
+
 - `http://<VM-IP>/`
   - Only Nginx is exposed. Backend/Frontend/Weaviate are internal to Docker.
 
-**Note**: The API will return errors until you index data (Step 4).
-
 ---
 
-## Step 4: Index data into Weaviate
+## Step 4: Prepare embeddings (auto-index on startup)
 
-Your API will return a server error until the Weaviate collection exists.
-You need to index embeddings into Weaviate **twice**:
-1. **HTML documents** (from `data/embeddings/html_documents/`)
-2. **PDF documents** (from `data/embeddings/pdf_documents/`)
+The backend now **auto-indexes** embeddings on startup. You do **not** need to run
+manual indexing commands as long as the embeddings files exist in these folders:
 
-### Prerequisites: Prepare embeddings
-
-Before indexing, ensure you have embeddings JSONL files in:
 - `data/embeddings/html_documents/*.jsonl`
 - `data/embeddings/pdf_documents/*.jsonl`
 
 If you don't have embeddings yet, follow the ingestion pipeline:
+
 1. **Collect** → `scripts/web_collector.py` or `scripts/pdf_collector.py`
 2. **Process** → `scripts/text_processor.py`
 3. **Embed** → `scripts/embedder.py`
 
-### 4.1 Index HTML documents
+Auto-index runs only when the collection is empty. If you need to re-index,
+delete the collection and restart the backend:
 
-Index all HTML embeddings from the embeddings folder:
-
-```bash
-docker compose exec backend python -m scripts.index_embeddings \
-  --input-dir /app/data/embeddings/html_documents
-```
-
-This will process all `.jsonl` files in that directory and batch-insert them into Weaviate.
-
-### 4.2 Index PDF documents
-
-Index all PDF embeddings from the embeddings folder:
-
-```bash
-docker compose exec backend python -m scripts.index_embeddings \
-  --input-dir /app/data/embeddings/pdf_documents
-```
-
-### 4.3 Verify indexing
-
-Check that the collection exists and has data:
-
-```bash
-docker compose exec backend python -m scripts.delete_collection --list
-```
-
-You should see `SAAQDocuments` (or your configured collection name) listed.
-
-**Note**: If you need to re-index, you can delete the collection first:
 ```bash
 docker compose exec backend python -m scripts.delete_collection --collection SAAQDocuments --yes
+docker compose restart backend
 ```
 
 ---
@@ -169,10 +139,7 @@ docker compose exec backend python -m scripts.delete_collection --collection SAA
 
 ### Via UI
 
-Open your browser and navigate to:
-```
-http://<VM-IP>/
-```
+Open your browser and navigate to: `http://<VM-IP>/`
 
 Ask a question like: "What is a probationary license in Quebec?"
 
@@ -192,6 +159,7 @@ curl -X POST http://<VM-IP>/api/v1/chat \
 ```
 
 Expected response shape:
+
 - `answer`
 - `sources` (citations)
 - `retrieved_count`
@@ -219,11 +187,13 @@ docker compose logs -f weaviate
 After VM reboot, services will auto-restart (thanks to `restart: unless-stopped` policy).
 
 To manually restart:
+
 ```bash
 docker compose restart
 ```
 
 To restart a specific service:
+
 ```bash
 docker compose restart backend
 ```
@@ -231,6 +201,7 @@ docker compose restart backend
 ### Resource monitoring
 
 Check container resource usage:
+
 ```bash
 docker stats
 ```
@@ -239,6 +210,7 @@ docker stats
 
 - Weaviate data is stored in a Docker volume: `weaviate_data`
 - To backup Weaviate data:
+
   ```bash
   docker compose exec weaviate ls -la /var/lib/weaviate/backups
   ```
@@ -264,6 +236,7 @@ docker compose up -d --build
 ### Frontend shows "Request exceeded timeout"
 
 **Solution**: The RAG pipeline is taking longer than 60 seconds. The timeout is set to 120 seconds in the frontend config. If queries consistently take longer, consider:
+
 - Reducing `top_k` in requests
 - Using a faster LLM model
 - Optimizing your document chunks
@@ -274,7 +247,8 @@ docker compose up -d --build
 
 ### Can't access the UI
 
-**Solution**: 
+**Solution**:
+
 1. Check firewall: `sudo ufw status` (port 80 should be open)
 2. Check containers: `docker compose ps`
 3. Check Nginx logs: `docker compose logs nginx`
@@ -286,6 +260,7 @@ docker compose up -d --build
 If you want to run without Docker:
 
 1. Install Python 3.11+ and dependencies:
+
    ```bash
    pip install -r requirements.txt
    pip install -r backend/requirements.txt
@@ -293,10 +268,12 @@ If you want to run without Docker:
    ```
 
 2. Run services separately:
+
    - Weaviate: `docker compose up -d weaviate` (or use cloud Weaviate)
    - Backend: `uvicorn backend.main:app --reload --port 8000`
    - Frontend: `streamlit run frontend/app.py --server.port 8501`
 
 3. Access:
+
    - Frontend: `http://localhost:8501`
    - Backend API: `http://localhost:8000`
