@@ -39,7 +39,7 @@ Nginx routes:
 ## Step 1: Clone the repo on the VM
 
 ```bash
-git clone <YOUR_GITHUB_REPO_URL>
+git clone https://github.com/AbuUbaida/saaq_qa_assistant.git
 cd saaq_qa_assistant
 ```
 
@@ -51,7 +51,8 @@ Create a `.env` file in the repo root:
 
 ```bash
 cat > .env <<'EOF'
-HF_API_KEY=YOUR_HUGGINGFACE_API_KEY
+HF_API_KEY=<HUGGINGFACE_API_KEY>
+FIRECRAWL_API_KEY=<FIRECRAWL_API_KEY>
 EOF
 ```
 
@@ -82,7 +83,7 @@ At this point the UI should be reachable at:
 
 ## Step 4: One-time indexing (create collection + upload vectors)
 
-Your API will return a server error until the Weaviate collection exists.
+The API will return a server error until the Weaviate collection exists.
 To create it, you need to index embeddings into Weaviate.
 
 ### 4.1 Create processed chunks
