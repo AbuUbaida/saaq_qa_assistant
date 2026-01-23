@@ -113,7 +113,18 @@ class WeaviateStore:
     @staticmethod
     def _connect(*, use_local: bool, url: Optional[str], api_key: Optional[str]) -> weaviate.WeaviateClient:
         if use_local:
-            client = weaviate.connect_to_local()
+            host = os.getenv("WEAVIATE_HOST", "localhost")
+            port_raw = os.getenv("WEAVIATE_PORT", "8080")
+            try:
+                port = int(port_raw)
+            except Exception:
+                port = 8080
+
+            try:
+                client = weaviate.connect_to_local(host=host, port=port)  # type: ignore[call-arg]
+            except TypeError:
+                # Older client versions don't accept host/port kwargs.
+                client = weaviate.connect_to_local()
         else:
             url = url or os.getenv("WEAVIATE_CLOUD_URL")
             api_key = api_key or os.getenv("WEAVIATE_API_KEY")
@@ -211,7 +222,7 @@ class WeaviateStore:
         uuid = str(generate_uuid5(chunk_id))
         return props, uuid
 
-    def upsert(
+    def batch_insert(
         self,
         documents: List[Document],
         embeddings: List[List[float]],
@@ -220,7 +231,7 @@ class WeaviateStore:
         embedding_model: Optional[str] = None,
         batch_size: int = 200,
     ) -> int:
-        """Upsert (idempotently) documents and their vectors into Weaviate."""
+        """Batch-insert documents and their vectors into Weaviate."""
         if len(documents) != len(embeddings):
             raise ValueError(f"Mismatch: {len(documents)} documents but {len(embeddings)} embeddings")
 
@@ -230,25 +241,14 @@ class WeaviateStore:
 
         inserted = 0
 
-        # Prefer true upsert if the installed client supports it.
-        has_upsert = hasattr(getattr(collection, "data", None), "upsert")
-        if has_upsert:
-            for doc, vec in zip(documents, embeddings):
-                props, uuid = self._to_object(doc, embedding_model=embedding_model)
-                collection.data.upsert(properties=props, uuid=uuid, vector=vec)  # type: ignore[attr-defined]
-                inserted += 1
-            logger.info("Upserted %d object(s) into %s", inserted, name)
-            return inserted
-
-        # Fallback: batch insert; if duplicates are rejected by your Weaviate version,
-        # you may need to delete-by-uuid or switch to a client version that exposes upsert.
+        # Batch insert using Weaviate's batch API.
         with collection.batch.fixed_size(batch_size=batch_size) as batch:
             for doc, vec in zip(documents, embeddings):
                 props, uuid = self._to_object(doc, embedding_model=embedding_model)
                 batch.add_object(properties=props, uuid=uuid, vector=vec)
                 inserted += 1
 
-        logger.info("Inserted %d object(s) into %s", inserted, name)
+        logger.info("Batch-inserted %d object(s) into %s", inserted, name)
         return inserted
 
     def _collection(self, collection_name: Optional[str] = None):

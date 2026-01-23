@@ -8,10 +8,10 @@ services:
     - --scheme
     - http
     image: cr.weaviate.io/semitechnologies/weaviate:1.34.0
-    ports:
-    - 8080:8080
-    - 50051:50051
-    restart: on-failure:0
+    # ports:
+    # - 8080:8080
+    # - 50051:50051
+    restart: unless-stopped
     volumes:
     - weaviate_data:/var/lib/weaviate
     environment:
@@ -22,6 +22,9 @@ services:
       BACKUP_FILESYSTEM_PATH: '/var/lib/weaviate/backups'
       CLUSTER_HOSTNAME: 'node1'
       AUTOSCHEMA_ENABLED: 'false'
+    mem_limit: 256m
+    mem_reservation: 128m
+    cpus: 0.5
 
   backend:
     build:
@@ -33,10 +36,17 @@ services:
       WEAVIATE_PORT: "8080"
       HF_API_KEY: ${HF_API_KEY:-}
       CORS_ALLOW_ORIGINS: "*"
-    ports:
-      - "8000:8000"
+    # ports:
+    #   - "8000:8000"
     depends_on:
       - weaviate
+    restart: unless-stopped
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./data:/app/data:ro
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 0.5
 
   frontend:
     build:
@@ -44,10 +54,15 @@ services:
       dockerfile: frontend/Dockerfile
     environment:
       BACKEND_BASE_URL: "http://backend:8000"
-    ports:
-      - "8501:8501"
+      REQUEST_TIMEOUT: 120
+    # ports:
+    #   - "8501:8501"
     depends_on:
       - backend
+    restart: unless-stopped
+    mem_limit: 256m
+    mem_reservation: 128m
+    cpus: 0.5
 
   nginx:
     image: nginx:1.27-alpine
@@ -58,6 +73,10 @@ services:
     depends_on:
       - frontend
       - backend
+    restart: unless-stopped
+    mem_limit: 64m
+    mem_reservation: 32m
+    cpus: 0.25
 
   # prometheus:
   #   image: prom/prometheus:v2.50.1

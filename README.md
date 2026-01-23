@@ -14,9 +14,9 @@ Prometheus/Grafana are intentionally **not** part of the deployment workflow for
 
 ## What you will deploy (services)
 
-- `weaviate`: stores your vectors + document chunks
-- `backend`: FastAPI RAG API
-- `frontend`: Streamlit UI
+- `weaviate`: stores your vectors + document chunks (internal only)
+- `backend`: FastAPI RAG API (internal only)
+- `frontend`: Streamlit UI (internal only)
 - `nginx`: single public entrypoint (port 80)
 
 Nginx routes:
@@ -76,6 +76,7 @@ docker compose ps
 
 At this point the UI should be reachable at:
 - `http://<VM-IP>/`
+  - Only Nginx is exposed. Backend/Frontend/Weaviate are internal to Docker.
 
 ---
 
@@ -103,11 +104,16 @@ python -m scripts.embedder \
 This creates a file like:
 - `data/embeddings/pdf_documents/1_drivers_handbook[sentence-transformers_all-MiniLM-L6-v2].jsonl`
 
-### 4.3 Index embeddings into Weaviate
+### 4.3 Index embeddings into Weaviate (HTML + PDF)
+
+Run indexing twice: once for **HTML embeddings**, once for **PDF embeddings**.
 
 ```bash
-python -m scripts.index_embeddings \
-  --input data/embeddings/pdf_documents/1_drivers_handbook[sentence-transformers_all-MiniLM-L6-v2].jsonl
+# HTML embeddings
+python -m scripts.index_embeddings --input-dir data/embeddings/html_documents
+
+# PDF embeddings
+python -m scripts.index_embeddings --input-dir data/embeddings/pdf_documents
 ```
 
 ---

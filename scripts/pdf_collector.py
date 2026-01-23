@@ -74,24 +74,28 @@ def collect_pdfs(
     results: Dict[str, List[Document]] = {}
 
     for pdf_file in pdf_files:
-        if not pdf_file.endswith(".pdf"):
-            pdf_file = f"{pdf_file}.pdf"
-        pdf_path = source_dir / pdf_file
+        candidate_path = Path(pdf_file)
+        if candidate_path.exists():
+            pdf_path = candidate_path
+        else:
+            if not pdf_file.endswith(".pdf"):
+                pdf_file = f"{pdf_file}.pdf"
+            pdf_path = source_dir / pdf_file
 
         if not pdf_path.exists():
             logger.warning("Source file not found: %s, skipping", pdf_path)
-            results[pdf_file] = []
+            results[pdf_path.name] = []
             continue
 
-        logger.info("Processing source file: %s", pdf_file)
+        logger.info("Processing source file: %s", pdf_path.name)
         documents = load_pdf_as_documents(pdf_path)
         if not documents:
             logger.warning("No documents collected from %s", pdf_path)
-            results[pdf_file] = []
+            results[pdf_path.name] = []
             continue
 
-        results[pdf_file] = documents
-        logger.info("Collected %d document(s) from %s", len(documents), pdf_file)
+        results[pdf_path.name] = documents
+        logger.info("Collected %d document(s) from %s", len(documents), pdf_path.name)
 
     return results
 
@@ -129,7 +133,7 @@ def collect_and_save(
     for source_file, documents in documents_by_file.items():
         if not documents:
             continue
-        output_filename = source_file.replace(".pdf", ".jsonl")
+        output_filename = Path(source_file).name.replace(".pdf", ".jsonl")
         save_documents(documents, output_dir=output_dir, output_filename=output_filename)
     return documents_by_file
 
@@ -145,7 +149,7 @@ def parse_args():
         action="append",
         dest="pdf_files",
         default=None,
-        help="PDF filename to collect (repeatable). If omitted, collects all PDFs in source-dir.",
+        help="PDF filename or full path (repeatable). If omitted, collects all PDFs in source-dir.",
     )
     return p.parse_args()
 

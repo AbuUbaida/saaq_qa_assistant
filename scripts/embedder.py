@@ -28,8 +28,9 @@ from backend.ingest.embedder import (
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Create embeddings JSONL from processed JSONL.")
-    p.add_argument("--input", required=True, help="Input processed JSONL file (chunks, no embeddings yet).")
-    p.add_argument("--output-dir", default=None, help="Output directory (defaults to input file directory).")
+    p.add_argument("--input", default=None, help="Input processed JSONL file (chunks, no embeddings yet).")
+    p.add_argument("--input-dir", default=None, help="Directory of JSONL files to embed.")
+    p.add_argument("--output-dir", required=True, help="Output directory for embeddings.")
     p.add_argument("--model", default=DEFAULT_EMBEDDING_MODEL, help="Embedding model name.")
     p.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     p.add_argument("--delay", type=float, default=DEFAULT_DELAY_BETWEEN_BATCHES, help="Delay between batches (seconds).")
@@ -38,32 +39,44 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    input_path = Path(args.input)
-    output_dir = Path(args.output_dir) if args.output_dir else input_path.parent
+    if not args.input and not args.input_dir:
+        raise SystemExit("Provide --input or --input-dir")
 
-    docs = load_documents_for_embedding(input_path)
-    embeddings = embed_documents_batch(
-        docs,
-        model_name=args.model,
-        batch_size=args.batch_size,
-        delay_between_batches=args.delay,
-    )
+    input_paths = []
+    if args.input:
+        input_paths.append(Path(args.input))
+    if args.input_dir:
+        input_dir = Path(args.input_dir)
+        if not input_dir.exists():
+            raise SystemExit(f"Input directory not found: {input_dir}")
+        input_paths.extend(sorted(input_dir.glob("*.jsonl")))
 
-    valid_docs = []
-    valid_embs = []
-    for doc, emb in zip(docs, embeddings):
-        if emb is None:
-            continue
-        valid_docs.append(doc)
-        valid_embs.append(emb)
+    output_dir = Path(args.output_dir)
 
-    save_embeddings_to_jsonl(
-        documents=valid_docs,
-        embeddings=valid_embs,
-        output_dir=output_dir,
-        input_path=input_path,
-        model_name=args.model,
-    )
+    for input_path in input_paths:
+        docs = load_documents_for_embedding(input_path)
+        embeddings = embed_documents_batch(
+            docs,
+            model_name=args.model,
+            batch_size=args.batch_size,
+            delay_between_batches=args.delay,
+        )
+
+        valid_docs = []
+        valid_embs = []
+        for doc, emb in zip(docs, embeddings):
+            if emb is None:
+                continue
+            valid_docs.append(doc)
+            valid_embs.append(emb)
+
+        save_embeddings_to_jsonl(
+            documents=valid_docs,
+            embeddings=valid_embs,
+            output_dir=output_dir,
+            input_path=input_path,
+            model_name=args.model,
+        )
     return 0
 
 
