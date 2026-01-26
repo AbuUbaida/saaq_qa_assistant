@@ -15,3 +15,5 @@ __pycache__/
 # Local evaluation outputs (can be regenerated)
 data/evaluation/results/*.csv
 
+project_notes.txt
+requirements.in

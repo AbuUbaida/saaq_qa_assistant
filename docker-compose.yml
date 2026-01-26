@@ -36,6 +36,9 @@ services:
       WEAVIATE_PORT: "8080"
       HF_API_KEY: ${HF_API_KEY:-}
       CORS_ALLOW_ORIGINS: "*"
+      OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAME: "saaq-qa-assistant"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
     # ports:
     #   - "8000:8000"
     depends_on:
@@ -78,20 +81,31 @@ services:
     mem_reservation: 32m
     cpus: 0.25
 
-  # prometheus:
-  #   image: prom/prometheus:v2.50.1
-  #   ports:
-  #     - "9090:9090"
-  #   volumes:
-  #     - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  otel-collector:
+    image: otel/opentelemetry-collector
+    command: ["--config=/etc/otel-collector.yml"]
+    volumes:
+      - ./infra/otel-collector.yml:/etc/otel-collector.yml:ro
+    restart: unless-stopped
+    mem_limit: 128m
+    mem_reservation: 64m
+    cpus: 0.25
 
-  # grafana:
-  #   image: grafana/grafana:10.4.1
-  #   ports:
-  #     - "3000:3000"
-  #   depends_on:
-  #     - prometheus
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    # ports:
+    #   - "6006:6006"
+    environment:
+      PHOENIX_PORT: "6006"
+      PHOENIX_HOST_ROOT_PATH: "/phoenix"
+    restart: unless-stopped
+    volumes:
+      - phoenix_data:/app/data
+    mem_limit: 256m
+    mem_reservation: 128m
+    cpus: 0.5
 
 volumes:
   weaviate_data:
+  phoenix_data:
 

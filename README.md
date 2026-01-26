@@ -261,7 +261,7 @@ If you want to run without Docker:
 
 1. Install Python 3.11+ and dependencies:
 
-   ```bash
+```bash
    pip install -r requirements.txt
    pip install -r backend/requirements.txt
    pip install -r frontend/requirements.txt

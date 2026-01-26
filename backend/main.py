@@ -24,6 +24,7 @@ from .api.v1.chat import router as chat_router
 from .api.v1.feedback import router as feedback_router
 from .db.vector_store import WeaviateStore
 from .ingest.indexer import index_embeddings_files
+from .observability.otel import setup_otel
 
 logger = get_logger(__name__)
 
@@ -109,6 +110,7 @@ def _index_on_startup(settings) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    setup_otel(app)
     if settings.auto_index_on_startup:
         logger.info("Auto-index on startup enabled.")
         _index_on_startup(settings)

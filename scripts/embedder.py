@@ -54,29 +54,29 @@ def main() -> int:
     output_dir = Path(args.output_dir)
 
     for input_path in input_paths:
-        docs = load_documents_for_embedding(input_path)
-        embeddings = embed_documents_batch(
-            docs,
-            model_name=args.model,
-            batch_size=args.batch_size,
-            delay_between_batches=args.delay,
-        )
+    docs = load_documents_for_embedding(input_path)
+    embeddings = embed_documents_batch(
+        docs,
+        model_name=args.model,
+        batch_size=args.batch_size,
+        delay_between_batches=args.delay,
+    )
 
-        valid_docs = []
-        valid_embs = []
-        for doc, emb in zip(docs, embeddings):
-            if emb is None:
-                continue
-            valid_docs.append(doc)
-            valid_embs.append(emb)
+    valid_docs = []
+    valid_embs = []
+    for doc, emb in zip(docs, embeddings):
+        if emb is None:
+            continue
+        valid_docs.append(doc)
+        valid_embs.append(emb)
 
-        save_embeddings_to_jsonl(
-            documents=valid_docs,
-            embeddings=valid_embs,
+    save_embeddings_to_jsonl(
+        documents=valid_docs,
+        embeddings=valid_embs,
             output_dir=output_dir,
             input_path=input_path,
-            model_name=args.model,
-        )
+        model_name=args.model,
+    )
     return 0
 
 

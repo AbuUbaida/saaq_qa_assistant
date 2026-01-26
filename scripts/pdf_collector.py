@@ -78,9 +78,9 @@ def collect_pdfs(
         if candidate_path.exists():
             pdf_path = candidate_path
         else:
-            if not pdf_file.endswith(".pdf"):
-                pdf_file = f"{pdf_file}.pdf"
-            pdf_path = source_dir / pdf_file
+        if not pdf_file.endswith(".pdf"):
+            pdf_file = f"{pdf_file}.pdf"
+        pdf_path = source_dir / pdf_file
 
         if not pdf_path.exists():
             logger.warning("Source file not found: %s, skipping", pdf_path)
