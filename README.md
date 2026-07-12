@@ -227,34 +227,6 @@ docker compose up -d --build
 
 ---
 
-## Troubleshooting
-
-### Backend returns "could not find class SAAQDocuments in schema"
-
-**Solution**: You haven't indexed data yet. Follow **Step 4** to index embeddings.
-
-### Frontend shows "Request exceeded timeout"
-
-**Solution**: The RAG pipeline is taking longer than 60 seconds. The timeout is set to 120 seconds in the frontend config. If queries consistently take longer, consider:
-
-- Reducing `top_k` in requests
-- Using a faster LLM model
-- Optimizing your document chunks
-
-### Containers won't start / OOM errors
-
-**Solution**: Your VM may not have enough RAM. Check resource limits in `docker-compose.yml` and adjust based on your VM size.
-
-### Can't access the UI
-
-**Solution**:
-
-1. Check firewall: `sudo ufw status` (port 80 should be open)
-2. Check containers: `docker compose ps`
-3. Check Nginx logs: `docker compose logs nginx`
-
----
-
 ## Local development (optional)
 
 If you want to run without Docker:
