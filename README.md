@@ -1,6 +1,6 @@
-# SAAQ QA Assistant (Portfolio Project)
+# SAAQ QA Assistant
 
-SAAQ QA Assistant is a simple **RAG (Retrieval-Augmented Generation)** project:
+SAAQ QA Assistant is a simple RAG project:
 
 - **Backend**: FastAPI (`backend/`) exposes `POST /api/v1/chat`
 - **Frontend**: Streamlit (`frontend/`) shows the answer + sources
